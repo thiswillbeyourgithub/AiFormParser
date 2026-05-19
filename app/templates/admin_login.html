@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}AiFormParser - Admin login{% endblock %}
+{% block content %}
+  <section>
+    <h2>Admin login</h2>
+    <form method="post" action="/admin/login">
+      <div class="row">
+        <label>Password
+          <input type="password" name="password" autocomplete="current-password" autofocus required>
+        </label>
+        <button type="submit">Log in</button>
+      </div>
+    </form>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script>
+    // Reaching the login page means there is no active admin session
+    // (logged out or never logged in), so clear the eruda flag.
+    try { localStorage.removeItem("afp_eruda_enabled"); } catch {}
+  </script>
+{% endblock %}

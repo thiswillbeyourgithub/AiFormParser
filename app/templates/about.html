@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}AiFormParser - About{% endblock %}
+{% block content %}
+  <div class="status-banner warn">
+    <strong>Super early, highly experimental project.</strong> This is a work
+    in progress and nothing about it is stable: APIs, the YAML schema, the UI,
+    and the processing pipeline can all change without notice, and things are
+    expected to break. Do not rely on it for anything important yet. A live
+    demo runs at
+    <a href="https://aiformparser.olicorne.org">aiformparser.olicorne.org</a>,
+    but it is very experimental and often down, slow, or mid-redeploy. If it
+    does not load, that is expected; try again later or run it locally.
+  </div>
+
+  <section>
+    <h2>About</h2>
+    <p class="muted">
+      AiFormParser converts paper clinical surveys into CSV by running OCR and
+      a multimodal LLM entirely in the researcher's browser. The server only
+      stores blank survey templates. While processing runs, the page holds a
+      screen wake lock (capped at 1 hour) so your machine does not suspend
+      mid-job; the screen may sleep normally once it finishes. See the project
+      <a href="https://github.com/thiswillbeyourgithub/AiFormParser">README</a>
+      and <code>CLAUDE.md</code> for the full specification.
+    </p>
+  </section>
+
+  <section>
+    <h2>Browser compatibility</h2>
+    <p class="muted">
+      The app needs a modern browser with WebAssembly (SIMD + threads,
+      requires the page to be cross-origin isolated, which the server already
+      configures). WebGPU is optional but gives a meaningful per-box speedup
+      when the local GPU stack supports it. If both the browser-compatibility
+      list and the README's install section disagree, treat this page as
+      authoritative for browser/OS specifics and the README as authoritative
+      for server-side setup.
+    </p>
+    <p>
+      <strong>Use a Chromium-based browser.</strong> Per the
+      <a href="https://github.com/ngxson/wllama/blob/master/compat/README.md"
+         target="_blank" rel="noopener">wllama compatibility notes</a>,
+      Firefox and Safari are not supported. Firefox cannot use WebGPU in
+      wllama's default mode, and Safari requires a slow compat build that
+      we deliberately disable via <code>wllama.setCompat(null)</code>. A
+      dismissible banner shows at the top of the page if you load it in a
+      non-Chromium browser. Recommended browsers: Chromium, Chrome, Brave,
+      Edge, Opera.
+    </p>
+
+    <h3>Checking what your browser exposes</h3>
+    <p>
+      Before debugging slow inference, confirm what your browser actually
+      reports for GPU acceleration and WebGPU:
+    </p>
+    <ul>
+      <li>
+        Chromium-based browsers (Chrome, Chromium, Brave, Edge, Opera):
+        open <code>chrome://gpu</code>. The "Graphics Feature Status" table
+        at the top is the quick read; WebGPU should say
+        "Hardware accelerated" if it is actually being used. Further down,
+        the "Problems Detected" and "Driver Information" sections explain
+        any features that were blocklisted or fell back to software.
+      </li>
+      <li>
+        Mozilla Firefox: open <code>about:support</code> and scroll to the
+        "Graphics" section. The "Compositing", "WebGPU" and "Features" rows
+        tell you which backend is active and whether anything was blocked.
+        Recent Firefox builds also expose <code>about:webgpu</code> with
+        per-adapter details.
+      </li>
+    </ul>
+
+    <h3>Linux</h3>
+
+    <h4>Ubuntu 22.04, integrated GPU only (no acceleration out of the box)</h4>
+    <p>
+      Tested on a Lenovo laptop with an Intel UHD Graphics 620 (Kaby Lake
+      Refresh). Out of the box, Chromium reported every graphics feature as
+      "Software only" and the LLM was painfully slow (vision encoder warmup
+      around 70 seconds, per-box inference around 30 seconds). The reason
+      was the userspace Vulkan driver was not installed and the user account
+      was not in the <code>render</code> group, so the GPU device node
+      <code>/dev/dri/renderD128</code> could not be opened by Chromium.
+    </p>
+    <p>What fixed it (run on the host, not inside the container):</p>
+    <pre class="log">sudo apt install mesa-vulkan-drivers vulkan-tools libvulkan1
+sudo usermod -aG render $USER
+# fully log out and log back in so the group membership reaches new sessions
+groups          # should now include "render"
+vulkaninfo --summary | head -20   # should list the Intel UHD device</pre>
+    <p>
+      Then enable, in <code>chrome://flags</code>:
+    </p>
+    <ul>
+      <li><code>#enable-unsafe-webgpu</code> = Enabled</li>
+      <li><code>#enable-vulkan</code> = Enabled</li>
+      <li><code>#ignore-gpu-blocklist</code> = Enabled (UHD 620 is on the
+        historical blocklist for old driver bugs that Mesa 23+ no longer
+        has)</li>
+    </ul>
+    <p>
+      Restart Chromium and check <code>chrome://gpu</code>: WebGPU should
+      now read "Hardware accelerated". A caveat we hit: even with all of
+      the above green, <strong>llama.cpp's WebGPU backend currently fails
+      to load on Intel Gen9 hardware</strong> with an "Entry-point uses
+      workgroup_size(288, 1, 1) that exceeds the maximum allowed (256, 256,
+      64)" error in the <code>memset</code> compute pipeline. The shader is
+      sized for newer GPUs and exceeds the WebGPU spec minimum that Intel
+      UHD 620 reports. Until that is fixed upstream, you have to turn the
+      <code>#enable-unsafe-webgpu</code> flag back off and accept the
+      CPU-only path on this hardware.
+    </p>
+
+    <h4>Ubuntu 24.04, external NVIDIA GPU</h4>
+    <p>
+      <em>TODO: fill in once tested end to end on the 24.04 + NVIDIA box
+      (which proprietary driver version, whether <code>nvidia-vulkan</code>
+      needed installing separately, any <code>chrome://flags</code>
+      changes, observed WebGPU performance vs CPU baseline).</em>
+    </p>
+
+    <h3>macOS</h3>
+    <p class="muted">Not tested yet.</p>
+
+    <h3>Windows</h3>
+    <p class="muted">Not tested yet.</p>
+
+    <h2>Browsers tested</h2>
+
+    <h3>Brave v1.90.124 (Chromium 148.1.90.124)</h3>
+    <p>
+      Works end to end on the Ubuntu 22.04 host above, in CPU-only mode.
+      WebGPU was not enabled in this test.
+    </p>
+
+    <h3>Chromium 148.0.7778.167 (snap install on Ubuntu 22.04)</h3>
+    <p>
+      Application loads and runs in CPU-only mode. We could <strong>not
+      get WebGPU working</strong> on this install: even after the flags
+      and driver setup described above, the WebGPU compute pipeline failed
+      with the Gen9 workgroup-size error from llama.cpp's <code>memset</code>
+      shader. CPU fallback still works.
+    </p>
+
+  </section>
+
+  <section>
+    <h2>Vendored libraries</h2>
+    <p class="muted">
+      sha256 fingerprints of what the server is currently serving from
+      <code>app/static/vendor/</code>. Upstream version pins are in
+      <code>app/static/vendor/VERSIONS.md</code>;
+      <code>scripts/update-vendor.sh</code> refreshes prebuilt packages
+      from npm/CDN, and <code>scripts/build-wllama.sh</code> rebuilds
+      wllama (and llama.cpp) from source. After a local rebuild, the
+      wllama (wasm) row should match the sha printed by
+      <code>scripts/build-wllama.sh</code>.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Library</th>
+            <th>File</th>
+            <th>Size</th>
+            <th>Modified</th>
+            <th>sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in vendor_fingerprints %}
+            <tr>
+              <td>{{ v.label }}</td>
+              <td><code>{{ v.path }}</code></td>
+              {% if v.exists %}
+                <td>{{ v.size_h }}</td>
+                <td>{{ v.mtime }}</td>
+                <td title="{{ v.sha256 }}"><code>{{ v.sha256_short }}</code></td>
+              {% else %}
+                <td colspan="3" class="muted">missing</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

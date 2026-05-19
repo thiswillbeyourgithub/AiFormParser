@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AiFormParser{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app/common.css">
+  {{ umami_script | default('', true) | safe }}
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header>
+    <h1>AiFormParser</h1>
+    <nav>
+      <a href="/">Researcher</a>
+      <a href="/test">Test</a>
+      <a href="/admin">Admin</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <script type="module" src="/static/app/browser-warning.js"></script>
+  <script type="module" src="/static/app/single-tab-guard.js"></script>
+  <script type="module" src="/static/app/eruda-loader.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

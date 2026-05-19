@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}AiFormParser - Researcher{% endblock %}
+{% block content %}
+  <section>
+    <h2>Researcher</h2>
+    <p class="muted">
+      Pick a survey, drop one or more filled-in copies, and a CSV will be
+      generated locally in your browser. No patient data leaves this machine.
+    </p>
+  </section>
+
+  <section>
+    <h2>1. Choose a survey</h2>
+    <div class="row">
+      <label>Template
+        <select id="survey-picker"><option value="">Loading...</option></select>
+      </label>
+    </div>
+    <p id="survey-meta" class="muted"></p>
+    <p class="muted">
+      Auto-detect runs OCR on your first uploaded file and matches it to
+      the closest stored template by Levenshtein distance. Pick a specific
+      template if you want to skip detection.
+    </p>
+  </section>
+
+  <section>
+    <h2>2. Drop filled-in surveys</h2>
+    <div id="user-dropzone" class="dropzone">
+      Drop PDFs or images here, or click to choose files.
+      <input type="file" id="user-files" multiple accept="application/pdf,image/*" style="display:none">
+    </div>
+    <p class="muted">
+      Page count must match the template. Mismatched files are skipped.
+      Processing, OCR, and LLM calls happen entirely in this browser; the
+      page never sends patient data to the server.
+    </p>
+    <div class="row">
+      <label title="Pick which preset bundles the model and parameters. The admin defines these per survey.">
+        Preset
+        <select id="user-preset"><option value="">Pick a survey first</option></select>
+      </label>
+      <span id="user-preset-meta" class="muted"></span>
+    </div>
+    <div id="user-options"></div>
+    <div class="row">
+      <button id="pipeline-start" type="button" disabled>Start processing</button>
+      <button id="pipeline-cancel" class="danger" type="button" disabled>Cancel</button>
+      <button id="uploads-clear" class="secondary" type="button">Clear list</button>
+    </div>
+    <div id="llm-status" class="status-banner warn">Model not loaded.</div>
+    <p class="muted">
+      Live token stream from the current box. Updates as the model generates;
+      a frozen counter means the worker is stuck rather than slow.
+    </p>
+    <pre id="llm-stream" class="log" aria-live="polite"></pre>
+    <div id="uploads-list" class="uploads-list"></div>
+  </section>
+
+  <section id="review-section" hidden>
+    <h2>3. Review flagged boxes</h2>
+    <p class="muted">
+      Boxes whose extraction failed validation appear here. Save a value
+      or skip each one. Nothing on this page leaves the browser.
+    </p>
+    <div id="review-queue"></div>
+  </section>
+
+  <section id="export-section" hidden>
+    <h2>4. Export</h2>
+    <div class="row">
+      <label>Format
+        <select id="export-format">
+          <option value="csv">CSV</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+      </label>
+      <button id="export-download" type="button" disabled>Download</button>
+      <span id="export-status" class="muted"></span>
+    </div>
+    <p class="muted">
+      One row per uploaded survey. multi-select cells join their picks
+      with <code>;</code>. The file is built in the browser, nothing is
+      uploaded.
+    </p>
+  </section>
+
+  <section>
+    <div id="capability-banner" class="status-banner warn">Checking browser capabilities...</div>
+    <p class="muted">Full client-side diagnostics (OCR engine + LLM): <a href="/test">/test</a>.</p>
+  </section>
+
+{% endblock %}
+{% block scripts %}
+  <script type="module" src="/static/app/user.js"></script>
+{% endblock %}

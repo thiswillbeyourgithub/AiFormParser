@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}AiFormParser - Test{% endblock %}
+{% block content %}
+  <section>
+    <h2>Browser diagnostics</h2>
+    <p class="muted">
+      Confirms that the OCR engine and the local LLM run correctly in this
+      browser. Everything on this page stays client-side; nothing is
+      uploaded.
+    </p>
+  </section>
+
+  <section>
+    <h2>Client-side capability check</h2>
+    <div id="capability-banner" class="status-banner warn">Checking browser capabilities...</div>
+    <button id="smoke-run" type="button">Run smoke test (pdf.js + tesseract.js)</button>
+    <span id="smoke-status" class="muted"></span>
+    <pre id="smoke-log" class="log" aria-live="polite"></pre>
+  </section>
+
+  <section>
+    <h2>Runtime acceleration backend</h2>
+    <p class="muted">
+      Surfaces what wllama actually picks at runtime, so you can tell a
+      single-threaded WASM fallback or a missing WebGPU adapter apart
+      from a healthy multi-thread + GPU setup without opening devtools.
+      The pre-load row probes the browser; the post-load row reports
+      what wllama settled on after the model is loaded.
+    </p>
+    <div id="runtime-backend-pre" class="status-banner warn">Probing browser capabilities...</div>
+    <div id="runtime-backend-post" class="status-banner warn">Backend (post-load): load a model to populate.</div>
+    <div class="row">
+      <button id="runtime-backend-copy" type="button" class="secondary">Copy pre-load snapshot</button>
+    </div>
+    <details>
+      <summary>Pre-load snapshot (JSON)</summary>
+      <pre id="runtime-backend-json" class="log" aria-live="polite">(pending)</pre>
+    </details>
+    <h3>Console log capture</h3>
+    <p class="muted">
+      Mirrors the devtools console (wllama wrapper, llama.cpp native log
+      from <code>suppressNativeLog: false</code>, runtime diagnostics)
+      so you can copy it without opening devtools. Capture starts when
+      the page loads, so reload before running a check if you want a
+      clean trace.
+    </p>
+    <div class="row">
+      <button id="runtime-log-copy" type="button" class="secondary">Copy log</button>
+      <button id="runtime-log-clear" type="button" class="secondary">Clear log</button>
+    </div>
+    <pre id="runtime-log" class="log" aria-live="polite"></pre>
+  </section>
+
+  <section>
+    <h2>LLM diagnostic</h2>
+    <p class="muted">
+      Loads the selected model, generates a few tokens, validates structured
+      output (JSON-schema tool call), then OCRs a synthetic image to confirm
+      multimodal extraction works end to end. Run each check individually or
+      use <em>Run all</em>. Each run appends a row to the results table.
+    </p>
+    <div class="row">
+      <label>Model
+        <select id="llm-diag-model"><option value="">Loading...</option></select>
+      </label>
+      <span id="llm-diag-model-meta" class="muted"></span>
+    </div>
+    <div class="row">
+      <label>
+        <input type="checkbox" id="llm-diag-enable-vision" checked>
+        Enable vision encoder
+      </label>
+      <label>Compute offload
+        <select id="llm-diag-compute-offload">
+          <option value="gpu-all">All GPU layers (default)</option>
+          <option value="cpu-all">All CPU only (n_gpu_layers: 0)</option>
+          <option value="gpu-no-mmproj">GPU, vision encoder on CPU (mmproj_use_gpu: false)</option>
+        </select>
+      </label>
+      <span class="muted">
+        Diagnostic only. Both controls trigger a model reload on the next run.
+        If the Model options YAML below explicitly sets the same key, that wins
+        and the matching picker option is disabled.
+      </span>
+    </div>
+    <div class="row">
+      <label class="grow">
+        Model options (YAML; merged into the user-pipeline defaults at load time).
+        Editing these unloads the current model so the next run reloads.
+        <a href="https://github.ngxson.com/wllama/docs/interfaces/LoadModelParams.html"
+           target="_blank" rel="noopener">Available parameters</a>.
+        Set any value to <code>model_default</code> to drop that key from the
+        request, falling back to the model's own default.
+        <textarea id="llm-diag-model-opts" rows="10" spellcheck="false"></textarea>
+      </label>
+    </div>
+    <div class="row">
+      <label class="grow">
+        Completion options (YAML; passed per-completion, no reload needed).
+        Includes <code>temperature</code> plus any
+        <a href="https://github.ngxson.com/wllama/docs/interfaces/SamplingParams.html"
+           target="_blank" rel="noopener">SamplingParams</a>.
+        Set any value to <code>model_default</code> (the default for
+        <code>temperature</code>) to drop that key, so the model's own
+        baked-in default wins. Thinking is disabled by default via
+        <code>chat_template_kwargs: {enable_thinking: false, reasoning: false}</code>
+        so short generations do not get stuck inside the
+        <code>&lt;think&gt;</code> preamble; re-enable by editing this textarea.
+        <textarea id="llm-diag-sampling-opts" rows="6" spellcheck="false"></textarea>
+      </label>
+    </div>
+    <div class="llm-diag-steps" id="llm-diag-steps"></div>
+    <div class="row">
+      <button id="llm-diag-run-all" type="button">Run all checks</button>
+      <button id="llm-diag-cancel" class="danger" type="button" disabled>Cancel</button>
+      <button id="llm-diag-reset" class="secondary" type="button">Unload model</button>
+      <button id="llm-diag-clear" class="secondary" type="button">Clear results</button>
+      <button id="llm-diag-copy" class="secondary" type="button">Copy report</button>
+    </div>
+    <div id="llm-diag-status" class="status-banner warn">Idle. Pick a model and press Run.</div>
+    <div class="table-scroll">
+      <table class="llm-test-table">
+        <thead>
+          <tr>
+            <th style="width:220px">Step</th>
+            <th style="width:140px">Result</th>
+            <th style="width:100px">Time</th>
+            <th>Detail</th>
+          </tr>
+        </thead>
+        <tbody id="llm-diag-tbody"></tbody>
+      </table>
+    </div>
+    <p class="muted">
+      Live token stream (drag the bottom-right corner to resize; previous
+      step runs stay visible until <em>Clear results</em>):
+    </p>
+    <div id="llm-diag-stream" class="stream-log" aria-live="polite"></div>
+  </section>
+
+  <section>
+    <h2>LLM benchmarking</h2>
+    <p class="muted">
+      Sweeps thread count (1, 3, and the value the user pipeline picks on
+      this device) against compute offload (all GPU, all CPU, GPU with the
+      vision encoder forced to CPU). For each combination, the model is
+      reloaded, a short text generation runs and a synthetic multimodal OCR
+      runs, each stopped after 10 generated tokens (thinking included).
+      TTFT and tok/s are recorded per task. The final table is sorted by
+      multimodal tok/s, descending, since OCR is the production workload.
+      Uses the Model picker and the Model / Completion options textareas
+      above. Cancel interrupts after the current combination's load.
+    </p>
+    <div class="row">
+      <button id="llm-bench-run" type="button">Run benchmark</button>
+      <button id="llm-bench-cancel" type="button" class="danger" disabled>Cancel</button>
+      <button id="llm-bench-clear" type="button" class="secondary">Clear results</button>
+    </div>
+    <div id="llm-bench-status" class="status-banner warn">Idle. Press Run to sweep thread count x compute offload.</div>
+    <div class="table-scroll">
+      <table class="llm-test-table">
+        <thead>
+          <tr>
+            <th>Combination</th>
+            <th style="width:110px">Text TTFT</th>
+            <th style="width:120px">Text tok/s</th>
+            <th style="width:110px">OCR TTFT</th>
+            <th style="width:120px">OCR tok/s</th>
+          </tr>
+        </thead>
+        <tbody id="llm-bench-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script type="module" src="/static/app/test.js"></script>
+{% endblock %}

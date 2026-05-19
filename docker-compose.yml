@@ -1,0 +1,52 @@
+services:
+  aiformparser:
+    build: .
+    container_name: aiformparser
+    # Loopback-only bind: a reverse proxy (Caddy/Nginx) on the same host
+    # is the only ingress. Nothing on the public internet can hit 8400
+    # directly even if ufw rules drift.
+    ports:
+      - "127.0.0.1:8400:8000"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      MODELS_DIR: /data/models
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    # Block privilege escalation via setuid/setgid binaries.
+    security_opt:
+      - no-new-privileges:true
+    privileged: false
+    # The app writes only under /data (admin survey uploads, GGUF shards
+    # produced by app.model_split at startup). The bind mount stays RW;
+    # the rest of the root filesystem is read-only at runtime.
+    read_only: true
+    # /tmp is needed for Python's tempfile module and for llama-gguf-split
+    # scratch space when it reshapes oversized GGUFs.
+    tmpfs:
+      - /tmp:size=256M,mode=1777
+    cap_drop:
+      - ALL
+    # Matches the USER directive in the Dockerfile. The bind-mounted
+    # ./data MUST be owned by 1001:1001 on the host (or be group/world
+    # writable) or admin saves and the GGUF-split routine will fail
+    # with EACCES.
+    user: "1001:1001"
+    deploy:
+      resources:
+        limits:
+          # Generous vs. WebSend's 128M because llama-gguf-split can spike
+          # while reshaping multi-GB GGUFs at startup. Tune via .env if
+          # the host is tight.
+          memory: ${AIFP_MEM_LIMIT:-1G}
+          cpus: '${AIFP_CPU_LIMIT:-1.0}'
+    # /api/surveys is cheap, unauthenticated, and returns a small JSON
+    # list. It doesn't trigger any per-patient code path, so it stays a
+    # safe liveness probe under the project's privacy invariant.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/surveys', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

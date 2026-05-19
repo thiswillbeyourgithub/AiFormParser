@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}AiFormParser - Admin{% endblock %}
+{% block content %}
+  <section>
+    <h2>Admin</h2>
+    <div class="row">
+      <span class="grow muted">Logged in as admin.</span>
+      <form method="post" action="/admin/logout"><button type="submit" class="secondary">Log out</button></form>
+    </div>
+  </section>
+
+  <section>
+    <h2>Surveys</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Slug</th><th>Name</th><th>Pages</th><th></th></tr></thead>
+        <tbody id="admin-survey-rows"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
+      </table>
+    </div>
+    <p class="muted" id="admin-survey-status"></p>
+  </section>
+
+  <section>
+    <h2>Upload existing YAML to edit</h2>
+    <p class="muted">
+      Drop a previously exported <code>survey.yaml</code> here to rehydrate the
+      box definitions. Saves are blocked until headers are unique across all
+      pages.
+    </p>
+    <div class="row">
+      <input type="file" id="admin-yaml-input" accept=".yaml,.yml,text/yaml,application/x-yaml">
+      <button id="admin-yaml-parse" type="button">Parse YAML</button>
+    </div>
+    <pre id="admin-yaml-log" class="log" aria-live="polite"></pre>
+  </section>
+
+  <section>
+    <h2>Survey editor</h2>
+    <div class="row" id="editor-meta">
+      <label>Name <input type="text" id="editor-name" placeholder="Depression screening v3" autocomplete="off"></label>
+      <label>Slug <input type="text" id="editor-slug" placeholder="depression-screening-v3" autocomplete="off"></label>
+      <span class="grow"></span>
+      <button id="editor-precheck" type="button" class="secondary" disabled>Run precheck</button>
+      <button id="editor-save" type="button" disabled>Save survey</button>
+      <button id="editor-save-anyway" type="button" class="danger" hidden>Save anyway</button>
+      <button id="editor-discard" type="button" class="secondary" disabled>Discard</button>
+    </div>
+    <p class="muted" id="editor-status"></p>
+    <pre id="editor-precheck-report" class="log" aria-live="polite" hidden></pre>
+    <div id="editor-empty" class="dropzone">
+      Drop a PDF or image to start a new survey, or click "Edit" on a row above.
+      <input type="file" id="editor-files" accept="application/pdf,image/*" style="display:none">
+    </div>
+    <div id="editor-layout" hidden>
+      <div id="editor-workspace" class="workspace"></div>
+      <aside id="editor-side-panel" class="side-panel">
+        <div class="row">
+          <button id="editor-draw-toggle" type="button" class="secondary">Add box</button>
+          <button id="editor-ocr-run" type="button" class="secondary">Re-run OCR (this page)</button>
+          <label title="Overlay every OCR-detected word and line bounding box on the page image. Handy for debugging anchor matching.">
+            <input type="checkbox" id="editor-ocr-overlay-toggle">
+            Show OCR boxes
+          </label>
+        </div>
+        <p id="editor-ocr-status" class="muted"></p>
+        <div id="editor-side-panel-body"></div>
+        <p id="editor-uniqueness" class="muted"></p>
+        <p class="muted">Press Delete to remove the selected box.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section id="preset-section">
+    <h2>LLM presets for this survey</h2>
+    <p class="muted">
+      Each preset bundles a model name plus the load and sample parameters
+      a researcher should default to. Researchers pick a preset from the
+      list and can override individual parameters before running. The
+      preset marked default is pre-selected for them. A survey with no
+      preset cannot be processed.
+    </p>
+    <div class="row">
+      <button id="preset-add" type="button">Add preset</button>
+      <span id="preset-status" class="muted"></span>
+    </div>
+    <div id="preset-list" class="preset-list"></div>
+  </section>
+
+  <section>
+    <h2>Test LLM on this survey</h2>
+    <p class="muted">
+      Dry-run the model on the survey currently open in the editor. Runs
+      entirely in this browser, like the user pipeline. The blank test
+      crops directly from the template page; every box should come back
+      as missing. The filled test takes a sample PDF or image and runs
+      the full OCR plus anchor plus inference flow.
+    </p>
+    <div class="row">
+      <label title="Pick which preset to dry-run. The model and parameters come from that preset; override individual values via the dropdown below.">
+        Preset
+        <select id="llm-test-preset"><option value="">No presets defined</option></select>
+      </label>
+      <span id="llm-test-preset-meta" class="muted"></span>
+    </div>
+    <div id="llm-test-options"></div>
+    <div class="row">
+      <button id="llm-test-blank" type="button" disabled>Test on blank template</button>
+      <button id="llm-test-filled" type="button" disabled>Test on filled scan (upload)</button>
+      <button id="llm-test-cancel" class="danger" type="button" disabled>Cancel</button>
+      <input type="file" id="llm-test-file" accept="application/pdf,image/*" style="display:none">
+    </div>
+    <div id="llm-test-status" class="status-banner warn">Open a survey in the editor to enable.</div>
+    <p class="muted">
+      Live token stream from the current box. Updates as the model generates;
+      a frozen counter means the worker is stuck rather than slow.
+    </p>
+    <pre id="llm-test-stream" class="log" aria-live="polite"></pre>
+    <div class="table-scroll">
+      <table class="llm-test-table">
+        <thead>
+          <tr>
+            <th style="width:140px">Crop</th>
+            <th>Field</th>
+            <th>Raw output</th>
+            <th style="width:160px">Status</th>
+          </tr>
+        </thead>
+        <tbody id="llm-test-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Self-hosted models</h2>
+    <p class="muted">
+      To self-host weights, create one subdirectory per model under
+      <code>MODELS_DIR</code> on the data volume (e.g.
+      <code>MODELS_DIR/qwen3-4b/model.gguf</code>) and place the matching
+      <code>*mmproj*.gguf</code> projector next to it for multimodal support.
+      A flat <code>.gguf</code> at the top of <code>MODELS_DIR</code> still
+      works but has no projector. There is intentionally no upload endpoint.
+    </p>
+    <p class="warn-inline">
+      Avoid IQ imatrix quants (filenames containing <code>IQ1_*</code>,
+      <code>IQ2_*</code>, <code>IQ3_*</code>, <code>IQ4_*</code>). Per the
+      <a href="https://github.com/ngxson/wllama" target="_blank" rel="noopener">wllama
+      README</a> these are significantly slower than the classic K-quants
+      (<code>Q4_K_M</code>, <code>Q5_K_M</code>, ...) and are not recommended.
+      Any IQ-quant file listed below is tagged inline.
+    </p>
+    <ul id="model-list"><li class="muted">Loading...</li></ul>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script>
+    // Reaching /admin means the session cookie was accepted, so flag this
+    // device as admin-authenticated for the eruda loader.
+    try { localStorage.setItem("afp_eruda_enabled", "1"); } catch {}
+  </script>
+  <script type="module" src="/static/app/admin.js"></script>
+{% endblock %}
