@@ -75,8 +75,8 @@ All sources are public github mirrors of the official npm packages.
 
 ## wllama (`wllama/`)
 
-- Package: `@wllama/wllama@3.2.3`
-- Source: <https://cdn.jsdelivr.net/npm/@wllama/wllama@3.2.3/> (npm)
+- Package: `@wllama/wllama@3.4.0`
+- Source: <https://cdn.jsdelivr.net/npm/@wllama/wllama@3.4.0/> (npm)
 - Files:
   - `index.min.js` (ESM entry, exports `Wllama` plus helpers)
   - `multi-thread/wllama.wasm` (SIMD + threads build; the only variant
