@@ -75,20 +75,27 @@ All sources are public github mirrors of the official npm packages.
 
 ## wllama (`wllama/`)
 
-- Package: `@wllama/wllama@3.4.0`
-- Source: <https://cdn.jsdelivr.net/npm/@wllama/wllama@3.4.0/> (npm)
+- Packages: `@wllama/wllama@3.4.1`, `@wllama/wllama-compat@3.4.1`
+- Source: <https://cdn.jsdelivr.net/npm/@wllama/wllama@3.4.1/> (npm)
 - Files:
   - `index.min.js` (ESM entry, exports `Wllama` plus helpers)
-  - `multi-thread/wllama.wasm` (SIMD + threads build; the only variant
-    vendored because the user-side pipeline is gated behind the
-    capability banner that requires SIMD + crossOriginIsolated).
+  - `multi-thread/wllama.wasm` (SIMD + threads main bundle; the user-side
+    pipeline is gated behind the capability banner that requires SIMD +
+    crossOriginIsolated, so this is the default).
+  - `compat/wllama.js`, `compat/wllama.wasm` (ASYNCIFY fallback, no
+    JSPI / wasm64 / WebGPU). These come from the SEPARATE
+    `@wllama/wllama-compat` package, not from `@wllama/wllama`, and must be
+    refreshed alongside the main bundle (`scripts/update-vendor.sh` fetches
+    both in lockstep; `scripts/build-wllama.sh` produces both from source).
 - `app/static/app/user-llm.js` passes the multi-thread `.wasm` URL as
   `pathConfig.default`. In wllama v3.x that field is the absolute URL
   of the wasm binary itself (it is forwarded straight to the worker
   for `WebAssembly.compileStreaming`); pointing it at a directory
-  returns a 404 JSON that fails the magic-word check. The upstream
-  CDN compat fallback is disabled via `wllama.setCompat(null)` so the
-  runtime never reaches out to jsdelivr.
+  returns a 404 JSON that fails the magic-word check. `wllama.setCompat()`
+  is pointed at the locally vendored `compat/` bundle (WLLAMA_COMPAT_PATHS)
+  rather than `null`, so the ASYNCIFY fallback (mobile Safari, current
+  mobile Chrome, forced CPU-only path) loads from our own origin and the
+  runtime never reaches out to wllama's jsdelivr CDN.
 
 ## eruda (`eruda/`)
 

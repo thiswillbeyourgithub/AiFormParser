@@ -4,9 +4,17 @@
 # Usage:
 #   scripts/update-vendor.sh                    # update everything
 #   scripts/update-vendor.sh pdfjs wllama       # update only listed packages
+#   scripts/update-vendor.sh wllama --no-compat # skip the wllama-compat bundle
 #   scripts/update-vendor.sh --help
 #
 # Targets: pdfjs tesseract js-yaml xlsx wllama tessdata
+#
+# Options:
+#   --compat 0|1   when the wllama target runs, also refresh the separate
+#                  @wllama/wllama-compat fallback bundle (default 1).
+#                  --no-compat is shorthand for --compat 0 and leaves the
+#                  vendored compat/ files untouched (e.g. when they were
+#                  built from source via scripts/build-wllama.sh).
 #
 # The pinned versions in app/static/vendor/VERSIONS.md are rewritten
 # automatically; review the diff (and the smoke tests on a major bump).
@@ -23,6 +31,11 @@ need npm
 need node
 need curl
 need tar
+
+# Whether the wllama target also refreshes the separate @wllama/wllama-compat
+# fallback bundle (compat/wllama.{js,wasm}). Toggled by --compat / --no-compat
+# in main(); mirrors build-wllama.sh's --build-compat / --no-compat.
+WITH_COMPAT=1
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -258,6 +271,31 @@ with open(path, "w", encoding="utf-8") as f:
 PY
   log "  wrote ${VENDOR#${REPO_ROOT}/}/wllama/BUILD_INFO.json (version=${ver}, commit=)"
   record_summary "@wllama/wllama" "$ver"
+
+  # Compat (ASYNCIFY, no JSPI / wasm64 / WebGPU) fallback bundle. It ships as
+  # a SEPARATE npm package, @wllama/wllama-compat, NOT inside @wllama/wllama,
+  # so the main copy_file calls above would silently leave it stale. The user
+  # UI loads it via wllama.setCompat() (see WLLAMA_COMPAT_PATHS in
+  # user-llm.js) on browsers without JSPI/wasm64 (mobile Safari, current
+  # mobile Chrome) and for the forced CPU-only path, so it must stay in
+  # lockstep with the main bundle. Pin it to the same version; fall back to
+  # the compat package's own latest only if that exact version was never
+  # published. scripts/build-wllama.sh produces the same two files from
+  # source; this keeps the npm-refresh path in sync with it.
+  if [[ "${WITH_COMPAT:-1}" != "1" ]]; then
+    log "  --no-compat: leaving vendored wllama/compat/ untouched"
+    return 0
+  fi
+  local cver="$ver"
+  if ! npm view "@wllama/wllama-compat@${ver}" version >/dev/null 2>&1; then
+    log "  WARNING: @wllama/wllama-compat@${ver} not published; falling back to compat latest" >&2
+    cver="$(npm_latest @wllama/wllama-compat)"
+  fi
+  log "@wllama/wllama-compat -> $cver"
+  local cpkg; cpkg="$(pack_pkg @wllama/wllama-compat "$cver")"
+  copy_file "$cpkg/wasm/wllama.js"   "$VENDOR/wllama/compat/wllama.js"
+  copy_file "$cpkg/wasm/wllama.wasm" "$VENDOR/wllama/compat/wllama.wasm"
+  record_summary "@wllama/wllama-compat" "$cver"
 }
 
 update_tessdata() {
@@ -345,6 +383,13 @@ update_versions_md() {
           -e "s|(cdn\\.jsdelivr\\.net/npm/@wllama/wllama@)[^/]+(/)|\1${ver}\2|" \
           "$md"
         ;;
+      @wllama/wllama-compat)
+        # Anchored on the `-compat` suffix so it does not collide with the
+        # bare `@wllama/wllama@` pin rewritten just above.
+        sed -i -E \
+          -e "s|(\`@wllama/wllama-compat@)[^\`]+(\`)|\1${ver}\2|" \
+          "$md"
+        ;;
       tessdata_fast)
         # Only rewrite when we got a real SHA back; the fallback string
         # "gh-pages HEAD" must not land in the backticked pin slot.
@@ -359,15 +404,28 @@ update_versions_md() {
 }
 
 usage() {
-  sed -n '2,12p' "$0"
+  sed -n '2,18p' "$0"
 }
 
 main() {
-  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-  fi
-  local targets=("$@")
+  # Positional args are target names; flags toggle optional behaviour. Parse
+  # both in one pass so --no-compat can sit anywhere on the line.
+  local targets=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help) usage; exit 0 ;;
+      --compat)
+        [[ $# -ge 2 ]] || { log "missing value for --compat (expected 0 or 1)" >&2; exit 1; }
+        WITH_COMPAT="$2"; shift 2 ;;
+      --no-compat) WITH_COMPAT=0; shift ;;
+      --*) log "unknown option: $1 (try --help)" >&2; exit 1 ;;
+      *) targets+=("$1"); shift ;;
+    esac
+  done
+  case "$WITH_COMPAT" in
+    0|1) ;;
+    *) log "--compat must be 0 or 1 (got: $WITH_COMPAT)" >&2; exit 1 ;;
+  esac
   if [[ ${#targets[@]} -eq 0 ]]; then
     targets=(pdfjs tesseract js-yaml xlsx wllama tessdata)
   fi
