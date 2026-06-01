@@ -1233,7 +1233,9 @@ const BENCH_MAX_TOKENS = 10;
 // capable browser the WebGPU/memory64 main bundle traps ("unreachable")
 // when GPU offload is disabled, so benchLoadModel forces the ASYNCIFY
 // compat bundle for this combo (forceCompat, same path real CPU-only
-// browsers take via needCompat()). These two timeouts still guard the
+// browsers take via needCompat()) UNLESS wllama_compat_fallback is false in
+// the Model options YAML, in which case the combo probes the main bundle
+// directly to test a custom build. These two timeouts still guard the
 // combo: a generous per-step watchdog so a merely-slow CPU run completes,
 // and a short teardown guard so a wedged exit() can't block the next combo.
 const BENCH_STEP_TIMEOUT_MS = 240000;
@@ -1244,15 +1246,18 @@ const BENCH_OFFLOAD_MODES = Object.freeze([
   { id: "gpu-no-mmproj", label: "GPU, vision on CPU", overlay: { mmproj_use_gpu: false } },
 ]);
 
-// The CPU-only combo runs on the compat bundle (forceCompat). If it still
-// fails, tag the row so the operator knows it exercised the compat
-// (ASYNCIFY, CPU-only) path, not the WebGPU main bundle, before hunting a
-// broken model or bad load options. Other modes pass their raw message
-// through unchanged.
-function annotateBenchError(err, mode) {
+// The CPU-only combo normally runs on the compat bundle (forceCompat). If
+// it still fails, tag the row so the operator knows which bundle it
+// exercised, before hunting a broken model or bad load options. When
+// wllama_compat_fallback is false the combo instead probes the WebGPU main
+// bundle directly (expected to trap), so the tag reflects that. Other modes
+// pass their raw message through unchanged.
+function annotateBenchError(err, mode, compatFallback) {
   const msg = String(err?.message || err);
   if (mode?.id === "cpu-all") {
-    return `${msg} [CPU-only ran on the compat bundle (forceCompat)]`;
+    return compatFallback
+      ? `${msg} [CPU-only ran on the compat bundle (forceCompat)]`
+      : `${msg} [CPU-only ran on the WebGPU main bundle directly (wllama_compat_fallback: false)]`;
   }
   return msg;
 }
@@ -1494,15 +1499,19 @@ async function benchOcr({ wllama, signal, samplingOpts, onFirstToken }) {
   return benchRunChat({ wllama, signal, samplingOpts, messages, onFirstToken });
 }
 
-async function benchLoadModel({ signal, modelOpts, threads, mode }) {
+async function benchLoadModel({ signal, modelOpts, threads, mode, compatFallback }) {
   const preferred = document.getElementById("llm-diag-model")?.value || "";
   return await loadModel({
     catalog: modelCatalog,
     preferredName: preferred,
     loadOptionsOverride: modelOpts,
-    // CPU-only must run on the compat bundle: the WebGPU main bundle traps
-    // when GPU offload is disabled. Mirror the diagnostic page's behaviour.
-    forceCompat: mode?.id === "cpu-all",
+    // CPU-only normally runs on the compat bundle: the WebGPU main bundle
+    // traps when GPU offload is disabled. Mirror the diagnostic page's
+    // behaviour. When wllama_compat_fallback is false we skip the fallback
+    // and let the CPU-only combo probe the main bundle directly (and pass
+    // compatFallback so loadModel's own auto-reroute is suppressed too).
+    forceCompat: mode?.id === "cpu-all" && compatFallback,
+    compatFallback,
     // Vision must stay on for the OCR task; the offload picker controls
     // where it runs.
     disableVision: false,
@@ -1528,7 +1537,7 @@ async function benchLoadModel({ signal, modelOpts, threads, mode }) {
   });
 }
 
-async function runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, liveRow }) {
+async function runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, compatFallback, liveRow }) {
   const row = {
     threads,
     mode,
@@ -1548,7 +1557,7 @@ async function runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, li
   liveRow?.setPhase("loading model");
   let wllama;
   try {
-    wllama = await benchLoadModel({ signal, modelOpts, threads, mode });
+    wllama = await benchLoadModel({ signal, modelOpts, threads, mode, compatFallback });
   } catch (err) {
     if (signal.aborted) throw makeAbortError();
     // Log the full Error object so the script's [pageerror] /
@@ -1559,7 +1568,7 @@ async function runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, li
       `[bench] load failed for ${benchComboLabel(threads, mode)}`,
       err,
     );
-    const msg = annotateBenchError(err, mode);
+    const msg = annotateBenchError(err, mode, compatFallback);
     row.text.error = `load: ${msg}`;
     row.ocr.error = `load: ${msg}`;
     liveRow?.setText(row.text);
@@ -1584,7 +1593,7 @@ async function runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, li
     row.text = { ttftMs: r.ttftMs, tps: r.tps, error: null };
   } catch (err) {
     if (signal.aborted) throw makeAbortError();
-    row.text.error = annotateBenchError(err, mode);
+    row.text.error = annotateBenchError(err, mode, compatFallback);
   }
   liveRow?.setText(row.text);
   if (signal.aborted) throw makeAbortError();
@@ -1604,7 +1613,7 @@ async function runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, li
     row.ocr = { ttftMs: r.ttftMs, tps: r.tps, error: null };
   } catch (err) {
     if (signal.aborted) throw makeAbortError();
-    row.ocr.error = annotateBenchError(err, mode);
+    row.ocr.error = annotateBenchError(err, mode, compatFallback);
   }
   liveRow?.setOcr(row.ocr);
   liveRow?.done();
@@ -1622,11 +1631,11 @@ async function runBenchmark() {
     setBenchStatus(err.message, "error");
     return;
   }
-  // Drop the diagnostic-only wllama_compat_fallback key so it never reaches
-  // wllama. The sweep keeps its own per-mode compat handling (cpu-all forces
-  // the compat bundle, see BENCH_OFFLOAD_MODES / benchLoadModel), so the
-  // flag's value is intentionally not honoured here, only stripped.
-  extractCompatFallback(baseOpts);
+  // Pull the diagnostic-only wllama_compat_fallback key out of the textarea
+  // YAML so it never reaches wllama, and honour it across the sweep: when
+  // false, the cpu-all combo probes the WebGPU main bundle directly instead
+  // of forcing the compat bundle (see benchLoadModel / annotateBenchError).
+  const compatFallback = extractCompatFallback(baseOpts);
   clearBenchTable();
   // The bench reloads the wllama instance many times; reset the
   // diagnostic's "already passed" set so a later Run All re-runs every
@@ -1656,7 +1665,7 @@ async function runBenchmark() {
           { spinner: true },
         );
         const liveRow = appendBenchLiveRow(threads, mode);
-        const row = await runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, liveRow });
+        const row = await runBenchCombo({ signal, baseOpts, samplingOpts, threads, mode, compatFallback, liveRow });
         rows.push(row);
       }
     }
