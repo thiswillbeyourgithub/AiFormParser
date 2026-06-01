@@ -77,10 +77,18 @@
           <option value="gpu-no-mmproj">GPU, vision encoder on CPU (mmproj_use_gpu: false)</option>
         </select>
       </label>
+      <label>
+        <input type="checkbox" id="llm-diag-compat-fallback" checked>
+        Compat fallback for CPU-only
+      </label>
       <span class="muted">
-        Diagnostic only. Both controls trigger a model reload on the next run.
+        Diagnostic only. These controls trigger a model reload on the next run.
         If the Model options YAML below explicitly sets the same key, that wins
-        and the matching picker option is disabled.
+        and the matching picker option is disabled. Uncheck
+        <em>Compat fallback for CPU-only</em> to attempt the WebGPU main bundle
+        directly with GPU offload disabled (instead of the compat bundle), to
+        test whether a custom wllama build can run without offloading layers. The
+        stock bundle traps ("unreachable") in that mode.
       </span>
     </div>
     <div class="row">

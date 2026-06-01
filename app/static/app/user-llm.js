@@ -191,6 +191,15 @@ export async function loadModel({
   // diagnostic + benchmark "CPU only" modes; the normal user pipeline
   // leaves this false and lets wllama's needCompat() decide.
   forceCompat = false,
+  // Diagnostic escape hatch from the /test page. When false, a CPU-only
+  // request (n_gpu_layers: 0) is NOT auto-routed to the compat bundle:
+  // we attempt the WebGPU main bundle directly even though it currently
+  // traps ("unreachable") with GPU offload disabled. Used to test whether
+  // a custom wllama / llama.cpp build can run with offload off, narrowing
+  // down the trap rather than always papering over it with compat. The
+  // production pipeline and the normal /test CPU-only path leave this
+  // true so the documented compat fallback stays in effect.
+  compatFallback = true,
 } = {}) {
   if (instancePromise) return instancePromise;
   instancePromise = (async () => {
@@ -212,13 +221,22 @@ export async function loadModel({
     const reqGpuLayers = loadOptionsOverride ? loadOptionsOverride.n_gpu_layers : undefined;
     if (!effectiveForceCompat && reqGpuLayers != null) {
       if (Number(reqGpuLayers) === 0) {
-        console.warn(
-          "[diagnostics] n_gpu_layers:0 disables GPU offload, which traps the WebGPU " +
-          'bundle with a bare "unreachable". Routing this load through the CPU-only ' +
-          "compat bundle (forceCompat) instead. To run CPU-only deliberately, use the " +
-          "'CPU only' offload option rather than setting n_gpu_layers by hand.",
-        );
-        effectiveForceCompat = true;
+        if (compatFallback) {
+          console.warn(
+            "[diagnostics] n_gpu_layers:0 disables GPU offload, which traps the WebGPU " +
+            'bundle with a bare "unreachable". Routing this load through the CPU-only ' +
+            "compat bundle (forceCompat) instead. To run CPU-only deliberately, use the " +
+            "'CPU only' offload option rather than setting n_gpu_layers by hand.",
+          );
+          effectiveForceCompat = true;
+        } else {
+          console.warn(
+            "[diagnostics] n_gpu_layers:0 with the compat fallback disabled: attempting the " +
+            'WebGPU main bundle CPU-only despite the documented "unreachable" trap. This is a ' +
+            "deliberate probe to test whether a custom wllama / llama.cpp build can run with GPU " +
+            "offload off. Expect a trap on the stock bundle.",
+          );
+        }
       } else {
         console.warn(
           `[diagnostics] n_gpu_layers:${reqGpuLayers} is not honoured by the WebGPU wasm ` +

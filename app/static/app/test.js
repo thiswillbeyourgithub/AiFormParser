@@ -682,6 +682,7 @@ async function runStepLoad(ctx) {
       loadOptionsOverride: ctx.modelOpts,
       disableVision: ctx.disableVision,
       forceCompat: ctx.forceCompat,
+      compatFallback: ctx.compatFallback,
       onDiagnostics: renderPostLoadBackend,
       onProgress: ({ loaded, total, source }) => {
         if (signal?.aborted) return;
@@ -734,6 +735,7 @@ async function ensureModel(ctx) {
     loadOptionsOverride: ctx.modelOpts,
     disableVision: ctx.disableVision,
     forceCompat: ctx.forceCompat,
+    compatFallback: ctx.compatFallback,
     onDiagnostics: renderPostLoadBackend,
     onProgress: ({ loaded, total, source }) => {
       if (signal?.aborted) return;
@@ -1749,6 +1751,14 @@ function getVisionEnabled() {
   return el ? !!el.checked : true;
 }
 
+// When unchecked, a CPU-only run does NOT fall back to the compat bundle:
+// loadModel attempts the WebGPU main bundle directly with GPU offload off
+// (it currently traps), so the operator can test a custom wllama build.
+function getCompatFallbackEnabled() {
+  const el = document.getElementById("llm-diag-compat-fallback");
+  return el ? !!el.checked : true;
+}
+
 // Drops the picker selection into modelOpts only when the textarea has
 // not already declared the same key. Mutates the passed object.
 function applyOffloadPickerToModelOpts(modelOpts) {
@@ -1767,12 +1777,16 @@ async function buildContext() {
     readSamplingOptions(),
   ]);
   applyOffloadPickerToModelOpts(modelOpts);
-  // CPU-only must run on the compat bundle: the WebGPU main bundle traps
-  // ("unreachable") when GPU offload is disabled. forceCompat routes this
-  // run through the vendored compat (ASYNCIFY, CPU-only) bundle even on a
-  // browser that would otherwise pick the main bundle.
-  const forceCompat = getOffloadPickerValue() === "cpu-all";
-  return { modelOpts, samplingOpts, disableVision: !getVisionEnabled(), forceCompat };
+  // CPU-only normally runs on the compat bundle: the WebGPU main bundle
+  // traps ("unreachable") when GPU offload is disabled. forceCompat routes
+  // this run through the vendored compat (ASYNCIFY, CPU-only) bundle even
+  // on a browser that would otherwise pick the main bundle. The operator
+  // can disable that fallback to probe the main bundle directly (see
+  // getCompatFallbackEnabled); compatFallback also suppresses loadModel's
+  // own auto-reroute when n_gpu_layers:0 is typed straight into the YAML.
+  const compatFallback = getCompatFallbackEnabled();
+  const forceCompat = getOffloadPickerValue() === "cpu-all" && compatFallback;
+  return { modelOpts, samplingOpts, disableVision: !getVisionEnabled(), forceCompat, compatFallback };
 }
 
 async function runStep(step) {
@@ -2028,6 +2042,15 @@ function wireDiagnostic() {
     await shutdownLlm();
     resetPassedSinceLoad();
     setStatus("Compute offload changed. Next run will reload.", "muted");
+  });
+  // The compat-fallback toggle picks the wasm bundle for CPU-only runs, so
+  // it is a load-time setting like the picker above and needs the same
+  // unload-on-change teardown.
+  document.getElementById("llm-diag-compat-fallback").addEventListener("change", async () => {
+    if (activeAborter) return;
+    await shutdownLlm();
+    resetPassedSinceLoad();
+    setStatus("Compat fallback toggled. Next run will reload.", "muted");
   });
   // Re-parse the Model options YAML on every input so we can disable
   // picker options whose key is already explicitly set in the textarea
