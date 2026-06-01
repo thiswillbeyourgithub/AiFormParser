@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from app.analytics import analytics_context
 from app.config import get_settings
+from app.version import APP_VERSION
 
 router = APIRouter(tags=["about"])
 
@@ -82,6 +83,7 @@ def _vendor_fingerprints() -> list[dict]:
 def about_page(request: Request):
     settings = get_settings()
     ctx = analytics_context(settings)
+    ctx["app_version"] = APP_VERSION
     ctx["vendor_fingerprints"] = _vendor_fingerprints()
     return request.app.state.templates.TemplateResponse(
         request,
