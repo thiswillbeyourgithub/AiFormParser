@@ -165,6 +165,15 @@ def snapshot_status(page) -> str:
         return ""
 
 
+def snapshot_header(page) -> list[str]:
+    try:
+        return page.locator(
+            "table:has(#llm-bench-tbody) thead th"
+        ).all_text_contents()
+    except (PlaywrightTimeoutError, PlaywrightError):
+        return []
+
+
 def snapshot_rows(page) -> list[list[str]]:
     try:
         rows = page.locator("#llm-bench-tbody tr").all()
@@ -188,17 +197,24 @@ def click_cancel(page) -> None:
         log(f"[bench] could not click Cancel: {exc}")
 
 
-def print_final_table(rows: list[list[str]]) -> None:
+def print_final_table(rows: list[list[str]], header: list[str] | None = None) -> None:
     if not rows:
         log("[final] no rows recorded.")
         return
     log("[final] table (sorted by OCR tok/s):")
+    if header:
+        print(f"      {fmt_row(header)}", flush=True)
     for i, cells in enumerate(rows, 1):
         print(f"  {i:>2}. {fmt_row(cells)}", flush=True)
 
 
 def main() -> int:
     args = parse_args()
+    if not args.url.rstrip("/").endswith("/test"):
+        log(
+            f"[warn] --url '{args.url}' does not end with '/test'; the benchmark "
+            "lives on the /test page, so this is probably not what you want."
+        )
     if args.headless:
         log(
             "[warn] --headless disables Chromium's GPU; CPU vs GPU combinations "
@@ -297,12 +313,12 @@ def main() -> int:
                     # the final order.
                     time.sleep(min(1.0, args.poll_interval))
                     last_rows_snapshot = snapshot_rows(page)
-                    print_final_table(last_rows_snapshot)
+                    print_final_table(last_rows_snapshot, snapshot_header(page))
                     break
 
                 time.sleep(args.poll_interval)
         except SystemExit:
-            print_final_table(last_rows_snapshot)
+            print_final_table(last_rows_snapshot, snapshot_header(page))
             raise
         finally:
             try:
