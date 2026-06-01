@@ -8,8 +8,8 @@ All sources are public github mirrors of the official npm packages.
 
 ## pdf.js (`pdfjs/`)
 
-- Package: `pdfjs-dist@5.7.284`
-- Source: <https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-5.7.284.tgz>
+- Package: `pdfjs-dist@6.0.227`
+- Source: <https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-6.0.227.tgz>
 - Files: `pdf.min.mjs`, `pdf.worker.min.mjs`
 - v4+ is ESM-only. The library is loaded from `smoke.js` via dynamic
   `import()`, and pdfjs spawns its worker internally with
@@ -49,8 +49,8 @@ All sources are public github mirrors of the official npm packages.
 
 ## js-yaml (`js-yaml/`)
 
-- Package: `js-yaml@4.1.1`
-- Source: <https://registry.npmjs.org/js-yaml/-/js-yaml-4.1.1.tgz>
+- Package: `js-yaml@4.2.0`
+- Source: <https://registry.npmjs.org/js-yaml/-/js-yaml-4.2.0.tgz>
 - Files: `js-yaml.min.js`, `js-yaml.mjs`, `LICENSE`
 - Used by the admin UI to serialise the in-memory `Survey` to YAML before
   POSTing to `/api/surveys`. ESM build is loaded dynamically from
