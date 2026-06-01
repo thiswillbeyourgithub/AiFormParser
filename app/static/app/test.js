@@ -541,6 +541,11 @@ async function populateModelPicker() {
 const TEST_PAGE_EXTRA_MODEL_OPTS = Object.freeze({
   reasoning_budget_tokens: 256,
   reasoning_budget_message: "\nWait... This isn't so hard at all. I'm overthinking this   and can actually answer right away.",
+  // Diagnostic-only, consumed by extractCompatFallback (not a wllama param).
+  // Defaults the /test page to NOT falling back to the compat bundle for
+  // CPU-only loads, so a n_gpu_layers:0 run probes the WebGPU main bundle
+  // directly. Set true to restore the production compat-fallback behaviour.
+  wllama_compat_fallback: false,
 });
 
 async function prefillEditors() {
@@ -1617,6 +1622,11 @@ async function runBenchmark() {
     setBenchStatus(err.message, "error");
     return;
   }
+  // Drop the diagnostic-only wllama_compat_fallback key so it never reaches
+  // wllama. The sweep keeps its own per-mode compat handling (cpu-all forces
+  // the compat bundle, see BENCH_OFFLOAD_MODES / benchLoadModel), so the
+  // flag's value is intentionally not honoured here, only stripped.
+  extractCompatFallback(baseOpts);
   clearBenchTable();
   // The bench reloads the wllama instance many times; reset the
   // diagnostic's "already passed" set so a later Run All re-runs every
@@ -1751,12 +1761,20 @@ function getVisionEnabled() {
   return el ? !!el.checked : true;
 }
 
-// When unchecked, a CPU-only run does NOT fall back to the compat bundle:
-// loadModel attempts the WebGPU main bundle directly with GPU offload off
-// (it currently traps), so the operator can test a custom wllama build.
-function getCompatFallbackEnabled() {
-  const el = document.getElementById("llm-diag-compat-fallback");
-  return el ? !!el.checked : true;
+// Diagnostic-only Model-options key. It is NOT a wllama LoadModelParams
+// field, so extractCompatFallback pulls it out of the parsed YAML (default
+// false on /test, see TEST_PAGE_EXTRA_MODEL_OPTS) and deletes the key
+// before the rest of the object reaches wllama. When false a CPU-only load
+// (n_gpu_layers: 0) is NOT auto-routed to the compat bundle: loadModel
+// attempts the WebGPU main bundle directly (it currently traps), so the
+// operator can test whether a custom wllama build runs with offload off.
+const COMPAT_FALLBACK_KEY = "wllama_compat_fallback";
+
+function extractCompatFallback(modelOpts) {
+  if (!(COMPAT_FALLBACK_KEY in modelOpts)) return true;
+  const raw = modelOpts[COMPAT_FALLBACK_KEY];
+  delete modelOpts[COMPAT_FALLBACK_KEY];
+  return raw !== false;
 }
 
 // Drops the picker selection into modelOpts only when the textarea has
@@ -1776,15 +1794,16 @@ async function buildContext() {
     readModelOptions(),
     readSamplingOptions(),
   ]);
+  // Pull the diagnostic-only wllama_compat_fallback key out of the parsed
+  // YAML before it reaches wllama. CPU-only normally runs on the compat
+  // bundle: the WebGPU main bundle traps ("unreachable") when GPU offload
+  // is disabled, and forceCompat routes the run through the vendored compat
+  // (ASYNCIFY, CPU-only) bundle. When the key is false (the /test default)
+  // we skip that fallback so the main bundle is probed directly; this also
+  // suppresses loadModel's own auto-reroute when n_gpu_layers:0 is typed
+  // straight into the YAML.
+  const compatFallback = extractCompatFallback(modelOpts);
   applyOffloadPickerToModelOpts(modelOpts);
-  // CPU-only normally runs on the compat bundle: the WebGPU main bundle
-  // traps ("unreachable") when GPU offload is disabled. forceCompat routes
-  // this run through the vendored compat (ASYNCIFY, CPU-only) bundle even
-  // on a browser that would otherwise pick the main bundle. The operator
-  // can disable that fallback to probe the main bundle directly (see
-  // getCompatFallbackEnabled); compatFallback also suppresses loadModel's
-  // own auto-reroute when n_gpu_layers:0 is typed straight into the YAML.
-  const compatFallback = getCompatFallbackEnabled();
   const forceCompat = getOffloadPickerValue() === "cpu-all" && compatFallback;
   return { modelOpts, samplingOpts, disableVision: !getVisionEnabled(), forceCompat, compatFallback };
 }
@@ -2042,15 +2061,6 @@ function wireDiagnostic() {
     await shutdownLlm();
     resetPassedSinceLoad();
     setStatus("Compute offload changed. Next run will reload.", "muted");
-  });
-  // The compat-fallback toggle picks the wasm bundle for CPU-only runs, so
-  // it is a load-time setting like the picker above and needs the same
-  // unload-on-change teardown.
-  document.getElementById("llm-diag-compat-fallback").addEventListener("change", async () => {
-    if (activeAborter) return;
-    await shutdownLlm();
-    resetPassedSinceLoad();
-    setStatus("Compat fallback toggled. Next run will reload.", "muted");
   });
   // Re-parse the Model options YAML on every input so we can disable
   // picker options whose key is already explicitly set in the textarea

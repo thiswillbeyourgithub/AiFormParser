@@ -18,11 +18,11 @@ def test_test_page_is_public(client: TestClient):
     assert 'id="llm-diag-sampling-opts"' in body
     assert 'id="llm-diag-steps"' in body
     assert 'id="llm-diag-model"' in body
-    # Compute-offload picker plus the compat-fallback toggle that lets the
-    # operator probe the WebGPU main bundle CPU-only instead of the compat
-    # bundle.
+    # Compute-offload picker plus the documented wllama_compat_fallback
+    # Model-options key that lets the operator probe the WebGPU main bundle
+    # CPU-only instead of the compat bundle.
     assert 'id="llm-diag-compute-offload"' in body
-    assert 'id="llm-diag-compat-fallback"' in body
+    assert "wllama_compat_fallback" in body
     assert 'src="/static/app/test.js"' in body
     # Benchmarking suite: thread x compute-offload sweep.
     assert "LLM benchmarking" in body

@@ -77,18 +77,10 @@
           <option value="gpu-no-mmproj">GPU, vision encoder on CPU (mmproj_use_gpu: false)</option>
         </select>
       </label>
-      <label>
-        <input type="checkbox" id="llm-diag-compat-fallback" checked>
-        Compat fallback for CPU-only
-      </label>
       <span class="muted">
-        Diagnostic only. These controls trigger a model reload on the next run.
+        Diagnostic only. Both controls trigger a model reload on the next run.
         If the Model options YAML below explicitly sets the same key, that wins
-        and the matching picker option is disabled. Uncheck
-        <em>Compat fallback for CPU-only</em> to attempt the WebGPU main bundle
-        directly with GPU offload disabled (instead of the compat bundle), to
-        test whether a custom wllama build can run without offloading layers. The
-        stock bundle traps ("unreachable") in that mode.
+        and the matching picker option is disabled.
       </span>
     </div>
     <div class="row">
@@ -99,6 +91,14 @@
            target="_blank" rel="noopener">Available parameters</a>.
         Set any value to <code>model_default</code> to drop that key from the
         request, falling back to the model's own default.
+        The diagnostic-only key <code>wllama_compat_fallback</code> (default
+        <code>false</code> here) controls CPU-only loads: when
+        <code>false</code> a <code>n_gpu_layers: 0</code> load attempts the
+        WebGPU main bundle directly (it currently traps with
+        <code>"unreachable"</code>, so this is for testing custom wllama
+        builds); set it <code>true</code> to route CPU-only through the compat
+        bundle as production does. This key is consumed locally and is not sent
+        to wllama.
         <textarea id="llm-diag-model-opts" rows="10" spellcheck="false"></textarea>
       </label>
     </div>
